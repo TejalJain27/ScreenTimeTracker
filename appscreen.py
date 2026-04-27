@@ -44,17 +44,15 @@ def extract_text(image):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     return pytesseract.image_to_string(gray, config='--oem 3 --psm 6')
 
-# ---- TIME FUNCTIONS ----
+# ---- TIME ----
 def convert_to_hours(text):
     h = re.search(r"(\d+)\s*h", text)
     m = re.search(r"(\d+)\s*m", text)
-
     hours = 0
     if h:
         hours += int(h.group(1))
     if m:
         hours += int(m.group(1)) / 60
-
     return round(hours, 2)
 
 def extract_total_time(text):
@@ -65,22 +63,34 @@ def extract_total_time(text):
         return round(h + m/60, 2)
     return None
 
-# ---- CATEGORY BREAKDOWN ----
+# ---- ROBUST CATEGORY EXTRACTION (FIXED) ----
 def extract_category_times(text):
-    categories = {"Social":0,"Games":0,"Productivity":0}
+    categories = {"Social": 0, "Games": 0, "Productivity": 0}
+    lines = text.split("\n")
 
-    patterns = {
-        "Social": r"Social\s*(\d+)\s*h?\s*(\d+)?\s*m?",
-        "Games": r"Games\s*(\d+)\s*h?\s*(\d+)?\s*m?",
-        "Productivity": r"Productivity.*?(\d+)\s*h?\s*(\d+)?\s*m?"
-    }
+    for i, line in enumerate(lines):
+        l = line.lower()
 
-    for cat, pattern in patterns.items():
-        match = re.search(pattern, text)
-        if match:
-            h = int(match.group(1)) if match.group(1) else 0
-            m = int(match.group(2)) if match.group(2) else 0
-            categories[cat] = round(h + m/60, 2)
+        if "social" in l:
+            for j in range(i, min(i+2, len(lines))):
+                val = convert_to_hours(lines[j])
+                if val > 0:
+                    categories["Social"] = val
+                    break
+
+        if "game" in l:  # catches games/garnes/etc.
+            for j in range(i, min(i+2, len(lines))):
+                val = convert_to_hours(lines[j])
+                if val > 0:
+                    categories["Games"] = val
+                    break
+
+        if "product" in l:
+            for j in range(i, min(i+2, len(lines))):
+                val = convert_to_hours(lines[j])
+                if val > 0:
+                    categories["Productivity"] = val
+                    break
 
     return categories
 
@@ -106,6 +116,8 @@ if img_file:
         h = int(total_time)
         m = int((total_time - h) * 60)
         st.success(f"⏱ Total Screen Time: {h}h {m}m ({round(total_time,2)} hrs)")
+    else:
+        st.warning("Could not detect total time")
 
 # ---- AGE ----
 st.markdown("## 👤 Your Profile")
@@ -127,7 +139,6 @@ if age:
 
 # ---- APPS INPUT ----
 st.markdown("## 📱 Enter Top 3 Apps")
-
 apps, hours = [], []
 
 for i in range(3):
@@ -182,11 +193,10 @@ if total_time and age and len(apps) == 3:
 
     st.pyplot(fig)
 
-    # ---- BREAKDOWN PIE CHART ----
-    cat_data = extract_category_times(text)
-
+    # ---- BREAKDOWN (FIXED) ----
     st.markdown("## 📊 Breakdown")
 
+    cat_data = extract_category_times(text)
     filtered = {k: v for k, v in cat_data.items() if v > 0}
 
     if filtered:
@@ -199,7 +209,10 @@ if total_time and age and len(apps) == 3:
 
         st.pyplot(fig2)
 
-    # ---- INTERPRETATION ----
+    else:
+        st.warning("⚠️ Could not detect category breakdown clearly")
+
+    # ---- EVALUATION ----
     st.markdown("## 📈 Evaluation")
 
     diff = round(total_time - avg_usage, 2)
@@ -222,7 +235,6 @@ if total_time and age and len(apps) == 3:
         q3 = st.radio("Use before sleep?", ["Select","Yes","No"], index=0)
 
         if "Select" not in [q1,q2,q3]:
-
             risk = [q1,q2,q3].count("Yes")
 
             if risk >= 2:
