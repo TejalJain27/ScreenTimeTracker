@@ -8,18 +8,18 @@ import re
 import os
 import matplotlib.pyplot as plt
 
-# ---- LOCAL FIX ----
+# ---- LOCAL WINDOWS FIX ----
 if os.name == "nt":
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 st.set_page_config(page_title="Screen Time Analyzer", layout="wide")
 
 st.title("📱 Screen Time Analyzer")
-st.caption("Upload iOS Screen Time + Most Used Apps for accurate insights")
+st.caption("Accurate iOS Screen Time Insights")
 
 DEFAULT_LIMIT = 2.5
 
-# ---- CATEGORY ----
+# ---- CATEGORY MAP ----
 CATEGORY_MAP = {
     "Instagram": "Social",
     "WhatsApp": "Social",
@@ -33,19 +33,30 @@ CATEGORY_MAP = {
     "ChatGPT": "Productivity"
 }
 
-# ---- PREPROCESS ----
+# ---- PREPROCESS (IMPROVED) ----
 def preprocess(img):
     img = np.array(img)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray = cv2.convertScaleAbs(gray, alpha=1.5)
-    _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+    gray = cv2.GaussianBlur(gray, (3, 3), 0)
+
+    thresh = cv2.adaptiveThreshold(
+        gray, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        11, 2
+    )
     return thresh
 
-# ---- OCR ----
+# ---- OCR (DUAL PASS) ----
 def extract_text(image):
+    img = np.array(image)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    text1 = pytesseract.image_to_string(gray, config='--oem 3 --psm 4')
     processed = preprocess(image)
-    config = r'--oem 3 --psm 6'
-    return pytesseract.image_to_string(processed, config=config)
+    text2 = pytesseract.image_to_string(processed, config='--oem 3 --psm 4')
+
+    return text1 if len(text1) > len(text2) else text2
 
 # ---- TIME ----
 def convert_to_hours(text):
@@ -60,7 +71,7 @@ def convert_to_hours(text):
 
     return round(hours, 2)
 
-# ---- PARSE TOTAL TIME ----
+# ---- TOTAL TIME ----
 def extract_total_time(text):
     match = re.search(r"(\d+)\s*h\s*(\d+)?\s*m", text)
     if match:
@@ -69,7 +80,7 @@ def extract_total_time(text):
         return round(h + m/60, 2)
     return None
 
-# ---- PARSE MOST USED ----
+# ---- MOST USED PARSER ----
 def parse_most_used(text):
     lines = [l.strip() for l in text.split("\n") if l.strip()]
 
@@ -80,7 +91,6 @@ def parse_most_used(text):
         for app in KNOWN_APPS:
             if app.lower() in line.lower():
 
-                # find time nearby
                 for j in range(i, min(i+3, len(lines))):
                     if re.search(r"\d", lines[j]):
                         hrs = convert_to_hours(lines[j])
@@ -95,21 +105,37 @@ def parse_most_used(text):
 
     return df
 
+# ---- PRODUCTIVITY SCORE ----
+def productivity_score(df, pickups):
+    score = 100
 
-# ================= UI =================
+    # penalize addictive apps
+    for _, row in df.iterrows():
+        if row["Category"] in ["Social", "Gaming"] and row["Hours"] > 0.5:
+            score -= 10
 
+    # pickups penalty
+    if pickups > 80:
+        score -= 20
+    elif pickups > 50:
+        score -= 10
+
+    return max(score, 0)
+
+# ---- UI ----
 st.markdown("## 📊 Upload Screenshots")
 
 colA, colB = st.columns(2)
 
 with colA:
-    st.markdown("### 1️⃣ Screen Time Overview")
-    overview_img = st.file_uploader("Upload Overview", type=["png","jpg","jpeg"], key="overview")
+    overview_img = st.file_uploader("📈 Screen Time Overview", type=["png","jpg","jpeg"])
 
 with colB:
-    st.markdown("### 2️⃣ Most Used Apps")
-    apps_img = st.file_uploader("Upload Most Used", type=["png","jpg","jpeg"], key="apps")
+    apps_img = st.file_uploader("📱 Most Used Apps", type=["png","jpg","jpeg"])
 
+# ---- PICKUPS INPUT ----
+st.markdown("## 📱 Daily Pickups")
+pickups = st.number_input("Enter number of times you picked your phone today", 0, 300, 40)
 
 # ---- PROCESS ----
 if overview_img and apps_img:
@@ -117,21 +143,16 @@ if overview_img and apps_img:
     img1 = Image.open(overview_img)
     img2 = Image.open(apps_img)
 
-    # preview
     col1, col2 = st.columns(2)
     with col1:
-        st.image(img1, caption="Overview", width=250)
+        st.image(img1, width=250)
     with col2:
-        st.image(img2, caption="Most Used", width=250)
+        st.image(img2, width=250)
 
-    # OCR
     text1 = extract_text(img1)
     text2 = extract_text(img2)
 
-    # ---- TOTAL TIME ----
     total_time = extract_total_time(text1)
-
-    # ---- APP DATA ----
     df = parse_most_used(text2)
 
     if not df.empty:
@@ -142,14 +163,11 @@ if overview_img and apps_img:
         st.dataframe(df, use_container_width=True)
 
         # ---- TOTAL ----
-        st.markdown("## ⏱ Total Screen Time")
         if total_time:
-            st.metric("Total Usage", f"{total_time} hrs")
-        else:
-            st.warning("Could not detect total time")
+            st.metric("Total Screen Time", f"{total_time} hrs")
 
         # ---- CHART ----
-        st.markdown("### 📊 App Usage Chart")
+        st.markdown("### 📊 App Usage")
         fig, ax = plt.subplots()
         ax.bar(df["App"], df["Hours"])
         plt.xticks(rotation=45)
@@ -163,11 +181,8 @@ if overview_img and apps_img:
         cat.plot(kind="bar", ax=ax2)
         st.pyplot(fig2)
 
-        # ---- PRODUCTIVITY SCORE ----
-        score = 100
-        for _, row in df.iterrows():
-            if row["Category"] in ["Social", "Gaming"] and row["Hours"] > 0.5:
-                score -= 10
+        # ---- SCORE ----
+        score = productivity_score(df, pickups)
 
         st.markdown("## 🧠 Productivity Score")
 
@@ -178,17 +193,20 @@ if overview_img and apps_img:
         else:
             st.error(f"🚨 Poor: {score}/100")
 
-        # ---- FINAL INSIGHT ----
+        # ---- INSIGHT ----
         st.markdown("## 🤖 Insight")
 
+        if pickups > 80:
+            st.warning("High phone pickups detected. Try reducing frequent checking.")
+
         if total_time and total_time > DEFAULT_LIMIT:
-            st.warning("⚠️ You exceeded recommended 2.5 hrs usage")
+            st.warning("You exceeded recommended screen time (2.5 hrs).")
 
         if "Social" in cat and cat["Social"] > 1:
-            st.info("You are spending a lot of time on social apps")
+            st.info("High social media usage detected.")
 
     else:
-        st.error("❌ Could not detect apps from second image. Try clearer 'Most Used' screenshot.")
+        st.error("❌ Could not detect apps. Upload clearer 'Most Used' screenshot.")
 
 else:
-    st.info("📌 Upload both screenshots to begin analysis")
+    st.info("📌 Upload both screenshots to start analysis.")
