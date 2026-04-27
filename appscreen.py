@@ -1,102 +1,14 @@
-import streamlit as st
-import pytesseract
-import cv2
-import numpy as np
-from PIL import Image
-import re
-import os
-import pandas as pd
-import matplotlib.pyplot as plt
+# ================= USER INPUT =================
 
-# ---- LOCAL FIX ----
-if os.name == "nt":
-    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
-st.set_page_config(page_title="Screen Time Analyzer", layout="wide")
-
-st.title("📱 Screen Time Analyzer")
-st.caption("Manual + Smart Screen Time Analysis")
-
-DEFAULT_LIMIT = 2.5
-
-# ---- CATEGORY MAP ----
-CATEGORY_MAP = {
-    "Instagram": "Social",
-    "WhatsApp": "Social",
-    "Facebook": "Social",
-    "Snapchat": "Social",
-    "YouTube": "Entertainment",
-    "Call of Duty": "Gaming",
-    "PUBG": "Gaming",
-    "Safari": "Productivity",
-    "Chrome": "Productivity",
-    "ChatGPT": "Productivity"
-}
-
-# ---- OCR ----
-def extract_text(image):
-    img = np.array(image)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    return pytesseract.image_to_string(gray, config='--oem 3 --psm 6')
-
-# ---- TOTAL TIME ----
-def extract_total_time(text):
-    match = re.search(r"(\d+)\s*h\s*(\d+)?\s*m", text)
-    if match:
-        h = int(match.group(1))
-        m = int(match.group(2)) if match.group(2) else 0
-        return round(h + m/60, 2)
-    return None
-
-# ---- TIME PARSER ----
-def convert_to_hours(text):
-    h = re.search(r"(\d+)\s*h", text)
-    m = re.search(r"(\d+)\s*m", text)
-
-    hours = 0
-    if h:
-        hours += int(h.group(1))
-    if m:
-        hours += int(m.group(1)) / 60
-
-    return round(hours, 2)
-
-# ================= UI =================
-
-# ---- SCREEN TIME UPLOAD ----
-st.markdown("## 📊 Upload Screen Time Screenshot")
-img_file = st.file_uploader("Upload Screen Time", type=["png","jpg","jpeg"])
-
-total_time = None
-
-if img_file:
-    image = Image.open(img_file)
-
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        st.image(image, width=300)
-
-    text = extract_text(image)
-    total_time = extract_total_time(text)
-
-    if total_time:
-        st.success(f"⏱ Total Screen Time: {total_time} hrs")
-    else:
-        st.warning("Could not detect total time")
-
-# ---- MANUAL APP INPUT ----
-st.markdown("## ✍️ Add App Usage")
-
-num_apps = st.number_input("Number of apps to enter", 1, 10, 3)
+st.markdown("## 📱 Enter Top 3 Most Used Apps")
 
 apps = []
 hours = []
 
-for i in range(int(num_apps)):
+for i in range(3):
     col1, col2 = st.columns(2)
-
     with col1:
-        app = st.text_input(f"App {i+1} Name", key=f"app_{i}")
+        app = st.text_input(f"App {i+1}", key=f"app_{i}")
     with col2:
         time = st.text_input(f"Usage (e.g. 1h 30m)", key=f"time_{i}")
 
@@ -104,70 +16,81 @@ for i in range(int(num_apps)):
         apps.append(app)
         hours.append(convert_to_hours(time))
 
-# ---- DATAFRAME ----
-if apps:
-    df = pd.DataFrame({
-        "App": apps,
-        "Hours": hours
-    })
+# ---- PICKUPS ----
+pickups = st.number_input("Daily phone pickups", 0, 300, 40)
 
-    df["Category"] = df["App"].apply(lambda x: CATEGORY_MAP.get(x, "Other"))
+# ---- BEHAVIOR QUESTIONS ----
+st.markdown("## 🧠 Your Usage Habits")
 
-    st.markdown("## 📊 Usage Overview")
-    st.dataframe(df, use_container_width=True)
+q1 = st.radio("Do you check your phone without purpose?", ["Yes", "No"])
+q2 = st.radio("Do you feel distracted because of phone usage?", ["Yes", "No"])
+q3 = st.radio("Do you use your phone before sleeping?", ["Yes", "No"])
 
-    # ---- CHART ----
-    st.markdown("### 📊 App Usage")
-    fig, ax = plt.subplots()
-    ax.bar(df["App"], df["Hours"])
-    plt.xticks(rotation=45)
-    st.pyplot(fig)
+# ================= ANALYSIS =================
 
-    # ---- CATEGORY ----
-    st.markdown("### 📊 Category Usage")
-    cat = df.groupby("Category")["Hours"].sum()
+if len(apps) == 3:
 
-    fig2, ax2 = plt.subplots()
-    cat.plot(kind="bar", ax=ax2)
-    st.pyplot(fig2)
+    df = pd.DataFrame({"App": apps, "Hours": hours})
 
-    # ---- HIGH USAGE ----
-    st.markdown("## ⚠️ High Usage Apps (> 2 hrs)")
+    total_app_usage = sum(hours)
 
-    high_usage = df[df["Hours"] > 2]
+    st.markdown("## 📊 Your Usage")
+    st.dataframe(df)
 
-    if not high_usage.empty:
-        for _, row in high_usage.iterrows():
-            st.error(f"{row['App']} → {row['Hours']} hrs (Too High)")
+    # ---- ADDICTION SCORE ----
+    score = 0
+
+    # usage factor
+    if total_app_usage > 3:
+        score += 2
+    elif total_app_usage > 2:
+        score += 1
+
+    # pickups factor
+    if pickups > 80:
+        score += 2
+    elif pickups > 50:
+        score += 1
+
+    # behavior factor
+    behavior_score = [q1, q2, q3].count("Yes")
+    score += behavior_score
+
+    # ---- CLASSIFICATION ----
+    if score <= 2:
+        level = "Low"
+        st.success("✅ Low Risk Usage")
+    elif score <= 4:
+        level = "Moderate"
+        st.warning("⚠️ Moderate Usage — Be Careful")
     else:
-        st.success("No apps exceed 2 hrs")
+        level = "High"
+        st.error("🚨 High Risk of Phone Addiction")
 
-    # ---- PRODUCTIVITY SCORE ----
-    score = 100
+    # ---- EXPLANATION ----
+    st.markdown("## 🧠 Analysis")
 
-    for _, row in df.iterrows():
-        if row["Category"] in ["Social", "Gaming"] and row["Hours"] > 0.5:
-            score -= 10
+    st.write(f"- Total App Usage: {round(total_app_usage,2)} hrs")
+    st.write(f"- Daily Pickups: {pickups}")
+    st.write(f"- Behavior Indicators: {behavior_score}/3")
 
-    st.markdown("## 🧠 Productivity Score")
+    # ---- ADVICE ----
+    st.markdown("## 💡 Suggestions")
 
-    if score > 80:
-        st.success(f"🔥 Excellent: {score}/100")
-    elif score > 50:
-        st.warning(f"⚠️ Moderate: {score}/100")
+    if level == "High":
+        st.write("• Set strict app limits")
+        st.write("• Avoid phone before sleep")
+        st.write("• Keep phone away during work")
+    elif level == "Moderate":
+        st.write("• Reduce unnecessary usage")
+        st.write("• Track daily habits")
     else:
-        st.error(f"🚨 Poor: {score}/100")
+        st.write("• Maintain your healthy habits!")
 
-    # ---- COMPARISON ----
-    if total_time:
-        entered_total = sum(df["Hours"])
+    # ---- HELPFUL LINKS ----
+    st.markdown("## 🌐 Resources")
 
-        st.markdown("## 🔍 Consistency Check")
-
-        st.write(f"Entered Apps Total: {round(entered_total,2)} hrs")
-
-        if abs(entered_total - total_time) > 0.5:
-            st.warning("App usage does not match total screen time (possible missing apps)")
-        else:
-            st.success("App usage matches total screen time")
+    st.write("• https://www.digitalwellbeing.org")
+    st.write("• https://www.headspace.com")
+    st.write("• https://www.rescuetime.com")
 
