@@ -2,21 +2,20 @@ import streamlit as st
 import pytesseract
 import cv2
 import numpy as np
-import pandas as pd
 from PIL import Image
 import re
 import os
+import pandas as pd
 import matplotlib.pyplot as plt
-from difflib import get_close_matches
 
-# ---- LOCAL WINDOWS FIX ----
+# ---- LOCAL FIX ----
 if os.name == "nt":
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 st.set_page_config(page_title="Screen Time Analyzer", layout="wide")
 
 st.title("📱 Screen Time Analyzer")
-st.caption("Accurate iOS Screen Time Insights")
+st.caption("Manual + Smart Screen Time Analysis")
 
 DEFAULT_LIMIT = 2.5
 
@@ -34,32 +33,22 @@ CATEGORY_MAP = {
     "ChatGPT": "Productivity"
 }
 
-# ---- PREPROCESS ----
-def preprocess(img):
-    img = np.array(img)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (3, 3), 0)
-
-    thresh = cv2.adaptiveThreshold(
-        gray, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY,
-        11, 2
-    )
-    return thresh
-
 # ---- OCR ----
 def extract_text(image):
     img = np.array(image)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    return pytesseract.image_to_string(gray, config='--oem 3 --psm 6')
 
-    text1 = pytesseract.image_to_string(gray, config='--oem 3 --psm 6')
-    processed = preprocess(image)
-    text2 = pytesseract.image_to_string(processed, config='--oem 3 --psm 6')
+# ---- TOTAL TIME ----
+def extract_total_time(text):
+    match = re.search(r"(\d+)\s*h\s*(\d+)?\s*m", text)
+    if match:
+        h = int(match.group(1))
+        m = int(match.group(2)) if match.group(2) else 0
+        return round(h + m/60, 2)
+    return None
 
-    return text1 if len(text1) > len(text2) else text2
-
-# ---- TIME ----
+# ---- TIME PARSER ----
 def convert_to_hours(text):
     h = re.search(r"(\d+)\s*h", text)
     m = re.search(r"(\d+)\s*m", text)
@@ -72,146 +61,113 @@ def convert_to_hours(text):
 
     return round(hours, 2)
 
-# ---- TOTAL TIME ----
-def extract_total_time(text):
-    match = re.search(r"(\d+)\s*h\s*(\d+)?\s*m", text)
-    if match:
-        h = int(match.group(1))
-        m = int(match.group(2)) if match.group(2) else 0
-        return round(h + m/60, 2)
-    return None
+# ================= UI =================
 
-# ---- FUZZY PARSER ----
-def parse_most_used(text):
-    lines = [l.strip() for l in text.split("\n") if l.strip()]
+# ---- SCREEN TIME UPLOAD ----
+st.markdown("## 📊 Upload Screen Time Screenshot")
+img_file = st.file_uploader("Upload Screen Time", type=["png","jpg","jpeg"])
 
-    KNOWN_APPS = list(CATEGORY_MAP.keys())
-    data = []
+total_time = None
 
-    for i, line in enumerate(lines):
+if img_file:
+    image = Image.open(img_file)
 
-        match = get_close_matches(line, KNOWN_APPS, n=1, cutoff=0.6)
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        st.image(image, width=300)
 
-        if match:
-            app = match[0]
+    text = extract_text(image)
+    total_time = extract_total_time(text)
 
-            for j in range(i, min(i+3, len(lines))):
-                if re.search(r"\d", lines[j]):
-                    hrs = convert_to_hours(lines[j])
-                    if hrs > 0:
-                        data.append((app, hrs))
-                        break
+    if total_time:
+        st.success(f"⏱ Total Screen Time: {total_time} hrs")
+    else:
+        st.warning("Could not detect total time")
 
-    df = pd.DataFrame(data, columns=["App", "Hours"])
+# ---- MANUAL APP INPUT ----
+st.markdown("## ✍️ Add App Usage")
 
-    if not df.empty:
-        df = df.groupby("App", as_index=False)["Hours"].max()
+num_apps = st.number_input("Number of apps to enter", 1, 10, 3)
 
-    return df
+apps = []
+hours = []
 
-# ---- PRODUCTIVITY SCORE ----
-def productivity_score(df, pickups):
+for i in range(int(num_apps)):
+    col1, col2 = st.columns(2)
+
+    with col1:
+        app = st.text_input(f"App {i+1} Name", key=f"app_{i}")
+    with col2:
+        time = st.text_input(f"Usage (e.g. 1h 30m)", key=f"time_{i}")
+
+    if app and time:
+        apps.append(app)
+        hours.append(convert_to_hours(time))
+
+# ---- DATAFRAME ----
+if apps:
+    df = pd.DataFrame({
+        "App": apps,
+        "Hours": hours
+    })
+
+    df["Category"] = df["App"].apply(lambda x: CATEGORY_MAP.get(x, "Other"))
+
+    st.markdown("## 📊 Usage Overview")
+    st.dataframe(df, use_container_width=True)
+
+    # ---- CHART ----
+    st.markdown("### 📊 App Usage")
+    fig, ax = plt.subplots()
+    ax.bar(df["App"], df["Hours"])
+    plt.xticks(rotation=45)
+    st.pyplot(fig)
+
+    # ---- CATEGORY ----
+    st.markdown("### 📊 Category Usage")
+    cat = df.groupby("Category")["Hours"].sum()
+
+    fig2, ax2 = plt.subplots()
+    cat.plot(kind="bar", ax=ax2)
+    st.pyplot(fig2)
+
+    # ---- HIGH USAGE ----
+    st.markdown("## ⚠️ High Usage Apps (> 2 hrs)")
+
+    high_usage = df[df["Hours"] > 2]
+
+    if not high_usage.empty:
+        for _, row in high_usage.iterrows():
+            st.error(f"{row['App']} → {row['Hours']} hrs (Too High)")
+    else:
+        st.success("No apps exceed 2 hrs")
+
+    # ---- PRODUCTIVITY SCORE ----
     score = 100
 
     for _, row in df.iterrows():
         if row["Category"] in ["Social", "Gaming"] and row["Hours"] > 0.5:
             score -= 10
 
-    if pickups > 80:
-        score -= 20
-    elif pickups > 50:
-        score -= 10
+    st.markdown("## 🧠 Productivity Score")
 
-    return max(score, 0)
-
-# ================= UI =================
-
-st.markdown("## 📊 Upload Screenshots")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    overview_img = st.file_uploader("📈 Screen Time Overview", type=["png","jpg","jpeg"])
-
-with col2:
-    apps_img = st.file_uploader("📱 Most Used Apps", type=["png","jpg","jpeg"])
-
-# ---- PICKUPS ----
-st.markdown("## 📱 Daily Pickups")
-pickups = st.number_input("How many times did you pick your phone today?", 0, 300, 40)
-
-# ---- PROCESS ----
-if overview_img and apps_img:
-
-    img1 = Image.open(overview_img)
-    img2 = Image.open(apps_img)
-
-    colA, colB = st.columns(2)
-    with colA:
-        st.image(img1, width=250)
-    with colB:
-        st.image(img2, width=250)
-
-    text1 = extract_text(img1)
-    text2 = extract_text(img2)
-
-    total_time = extract_total_time(text1)
-    df = parse_most_used(text2)
-
-    if not df.empty:
-
-        df["Category"] = df["App"].apply(lambda x: CATEGORY_MAP.get(x, "Other"))
-
-        st.markdown("## 📊 Usage Overview")
-        st.dataframe(df, use_container_width=True)
-
-        # ---- TOTAL ----
-        if total_time:
-            st.metric("Total Screen Time", f"{total_time} hrs")
-        else:
-            st.warning("⚠️ Could not detect total screen time")
-
-        # ---- CHART ----
-        st.markdown("### 📊 App Usage")
-        fig, ax = plt.subplots()
-        ax.bar(df["App"], df["Hours"])
-        plt.xticks(rotation=45)
-        st.pyplot(fig)
-
-        # ---- CATEGORY ----
-        st.markdown("### 📊 Category Usage")
-        cat = df.groupby("Category")["Hours"].sum()
-
-        fig2, ax2 = plt.subplots()
-        cat.plot(kind="bar", ax=ax2)
-        st.pyplot(fig2)
-
-        # ---- SCORE ----
-        score = productivity_score(df, pickups)
-
-        st.markdown("## 🧠 Productivity Score")
-
-        if score > 80:
-            st.success(f"🔥 Excellent: {score}/100")
-        elif score > 50:
-            st.warning(f"⚠️ Moderate: {score}/100")
-        else:
-            st.error(f"🚨 Poor: {score}/100")
-
-        # ---- INSIGHTS ----
-        st.markdown("## 🤖 Insights")
-
-        if pickups > 80:
-            st.warning("High phone pickups detected. Try reducing frequent checking.")
-
-        if total_time and total_time > DEFAULT_LIMIT:
-            st.warning("You exceeded recommended screen time (2.5 hrs).")
-
-        if "Social" in cat and cat["Social"] > 1:
-            st.info("High social media usage detected.")
-
+    if score > 80:
+        st.success(f"🔥 Excellent: {score}/100")
+    elif score > 50:
+        st.warning(f"⚠️ Moderate: {score}/100")
     else:
-        st.warning("⚠️ Detection was partial. Try a clearer 'Most Used' screenshot.")
+        st.error(f"🚨 Poor: {score}/100")
 
-else:
-    st.info("📌 Upload both screenshots to begin analysis.")
+    # ---- COMPARISON ----
+    if total_time:
+        entered_total = sum(df["Hours"])
+
+        st.markdown("## 🔍 Consistency Check")
+
+        st.write(f"Entered Apps Total: {round(entered_total,2)} hrs")
+
+        if abs(entered_total - total_time) > 0.5:
+            st.warning("App usage does not match total screen time (possible missing apps)")
+        else:
+            st.success("App usage matches total screen time")
+
