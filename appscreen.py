@@ -8,7 +8,7 @@ import re
 import os
 import matplotlib.pyplot as plt
 
-# ---- FIX FOR LOCAL WINDOWS ----
+# ---- LOCAL WINDOWS FIX ----
 if os.name == "nt":
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
@@ -19,7 +19,7 @@ st.caption("Smart iOS Screen Time Insights")
 
 DEFAULT_LIMIT = 2.5
 
-# ---- APP CATEGORY CLASSIFICATION ----
+# ---- CATEGORY MAP ----
 CATEGORY_MAP = {
     "Instagram": "Social",
     "WhatsApp": "Social",
@@ -33,7 +33,6 @@ CATEGORY_MAP = {
     "ChatGPT": "Productivity"
 }
 
-# ---- SUGGESTIONS ----
 SUGGESTIONS = {
     "Social": "Reduce scrolling. Try app timers.",
     "Gaming": "Limit sessions. Take breaks.",
@@ -41,7 +40,7 @@ SUGGESTIONS = {
     "Productivity": "Good usage. Keep it up!"
 }
 
-# ---- PREPROCESS ----
+# ---- IMAGE PREPROCESS ----
 def preprocess(image):
     img = np.array(image)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -51,9 +50,11 @@ def preprocess(image):
 
 # ---- OCR ----
 def extract_text(image):
-    return pytesseract.image_to_string(preprocess(image))
+    processed = preprocess(image)
+    config = r'--oem 3 --psm 6'
+    return pytesseract.image_to_string(processed, config=config)
 
-# ---- TIME ----
+# ---- TIME PARSER ----
 def convert_to_hours(text):
     h = re.search(r"(\d+)\s*h", text)
     m = re.search(r"(\d+)\s*m", text)
@@ -66,77 +67,60 @@ def convert_to_hours(text):
 
     return round(hours, 2)
 
-# ---- SMART PARSER ----
+# ---- HYBRID PARSER ----
 def parse_ios(text):
     lines = [l.strip() for l in text.split("\n") if l.strip()]
+
+    KNOWN_APPS = [
+        "Instagram", "WhatsApp", "ChatGPT", "Call of Duty",
+        "YouTube", "Facebook", "Snapchat", "Safari", "Chrome"
+    ]
+
     data = []
 
-    capture = False
-
     for i, line in enumerate(lines):
-        if "Most Used" in line:
-            capture = True
-            continue
+        for app in KNOWN_APPS:
+            if app.lower() in line.lower():
 
-        if capture:
-            if len(line) > 2 and not re.search(r"\d", line):
-
-                # skip noise words
-                if line.lower() in ["show", "categories"]:
-                    continue
-
-                app = line
-
-                if i + 1 < len(lines):
-                    next_line = lines[i + 1]
-
-                    if re.search(r"\d", next_line):
-                        hours = convert_to_hours(next_line)
-
-                        # filter garbage like 'M'
-                        if len(app) > 2:
+                for j in range(i, min(i+3, len(lines))):
+                    if re.search(r"\d", lines[j]):
+                        hours = convert_to_hours(lines[j])
+                        if hours > 0:
                             data.append((app, hours))
+                            break
 
-    return pd.DataFrame(data, columns=["App", "Hours"])
+    df = pd.DataFrame(data, columns=["App", "Hours"])
 
+    if not df.empty:
+        df = df.groupby("App", as_index=False)["Hours"].max()
+
+    return df
 
 # ---- PRODUCTIVITY SCORE ----
 def productivity_score(df):
     score = 100
-
     for _, row in df.iterrows():
         category = CATEGORY_MAP.get(row["App"], "Social")
-
         if category in ["Social", "Gaming"] and row["Hours"] > 0.5:
             score -= 10
-
     return max(score, 0)
-
 
 # ---- AI SUMMARY ----
 def generate_summary(df):
     total = df["Hours"].sum()
+    summary = f"Total usage: {round(total,2)} hrs.\n"
 
-    category_time = {}
+    social_time = df[df["App"].map(CATEGORY_MAP).eq("Social")]["Hours"].sum()
 
-    for _, row in df.iterrows():
-        cat = CATEGORY_MAP.get(row["App"], "Social")
-        category_time[cat] = category_time.get(cat, 0) + row["Hours"]
-
-    summary = f"Total usage is {round(total,2)} hrs.\n"
-
-    if "Social" in category_time:
-        if category_time["Social"] > 1:
-            summary += "You are overusing social apps.\n"
-
-    if "Productivity" in category_time:
-        summary += "Good productivity usage observed.\n"
+    if social_time > 1:
+        summary += "High social media usage detected.\n"
 
     if total > 2.5:
-        summary += "Overall screen time is high."
+        summary += "Overall screen time is above recommended limit.\n"
+    else:
+        summary += "Screen usage looks balanced.\n"
 
     return summary
-
 
 # ---- UI ----
 st.markdown("### 📷 Upload Screenshot")
@@ -145,6 +129,7 @@ file = st.file_uploader("", type=["png", "jpg", "jpeg"])
 if file:
     image = Image.open(file)
 
+    # Center image
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         st.image(image, width=300)
@@ -156,33 +141,48 @@ if file:
 
     df = parse_ios(text)
 
+    # ---- FALLBACK ----
+    if df.empty:
+        st.warning("⚠️ Couldn't auto-detect apps.")
+
+        manual = st.text_area("Enter manually (e.g. Instagram 40m, WhatsApp 20m)")
+
+        if manual:
+            parsed = []
+            entries = manual.split(",")
+
+            for entry in entries:
+                parts = entry.strip().split()
+                if len(parts) >= 2:
+                    app = parts[0]
+                    time = convert_to_hours(" ".join(parts[1:]))
+                    parsed.append((app, time))
+
+            df = pd.DataFrame(parsed, columns=["App", "Hours"])
+
     if not df.empty:
 
-        st.success(f"Detected {len(df)} apps ✅")
-
-        # ---- ADD CATEGORY ----
         df["Category"] = df["App"].apply(lambda x: CATEGORY_MAP.get(x, "Social"))
 
         st.markdown("## 📊 Usage Overview")
         st.dataframe(df, use_container_width=True)
 
-        # ---- CHART ----
-        st.markdown("### 📊 App Usage Chart")
+        # ---- APP CHART ----
+        st.markdown("### 📊 App Usage")
         fig, ax = plt.subplots()
         ax.bar(df["App"], df["Hours"])
         plt.xticks(rotation=45)
         st.pyplot(fig)
 
         # ---- CATEGORY CHART ----
-        st.markdown("### 📊 Category-wise Usage")
-
+        st.markdown("### 📊 Category Usage")
         cat_df = df.groupby("Category")["Hours"].sum()
 
         fig2, ax2 = plt.subplots()
         cat_df.plot(kind="bar", ax=ax2)
         st.pyplot(fig2)
 
-        # ---- PRODUCTIVITY SCORE ----
+        # ---- SCORE ----
         score = productivity_score(df)
 
         st.markdown("## 🧠 Productivity Score")
@@ -194,15 +194,14 @@ if file:
         else:
             st.error(f"🚨 Poor: {score}/100")
 
-        # ---- AI SUMMARY ----
+        # ---- SUMMARY ----
         st.markdown("## 🤖 AI Insight")
         st.info(generate_summary(df))
 
         # ---- TIPS ----
         st.markdown("## 📌 Suggestions")
-
         for cat in df["Category"].unique():
             st.write(f"**{cat}:** {SUGGESTIONS.get(cat)}")
 
     else:
-        st.error("❌ Could not detect apps. Try a clearer screenshot.")
+        st.error("❌ No data available. Please input manually.")
