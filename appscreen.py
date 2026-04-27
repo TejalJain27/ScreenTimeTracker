@@ -44,15 +44,17 @@ def extract_text(image):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     return pytesseract.image_to_string(gray, config='--oem 3 --psm 6')
 
-# ---- TIME ----
+# ---- TIME FUNCTIONS ----
 def convert_to_hours(text):
     h = re.search(r"(\d+)\s*h", text)
     m = re.search(r"(\d+)\s*m", text)
+
     hours = 0
     if h:
         hours += int(h.group(1))
     if m:
         hours += int(m.group(1)) / 60
+
     return round(hours, 2)
 
 def extract_total_time(text):
@@ -63,44 +65,12 @@ def extract_total_time(text):
         return round(h + m/60, 2)
     return None
 
-# ---- ROBUST CATEGORY EXTRACTION (FIXED) ----
-def extract_category_times(text):
-    categories = {"Social": 0, "Games": 0, "Productivity": 0}
-    lines = text.split("\n")
-
-    for i, line in enumerate(lines):
-        l = line.lower()
-
-        if "social" in l:
-            for j in range(i, min(i+2, len(lines))):
-                val = convert_to_hours(lines[j])
-                if val > 0:
-                    categories["Social"] = val
-                    break
-
-        if "game" in l:  # catches games/garnes/etc.
-            for j in range(i, min(i+2, len(lines))):
-                val = convert_to_hours(lines[j])
-                if val > 0:
-                    categories["Games"] = val
-                    break
-
-        if "product" in l:
-            for j in range(i, min(i+2, len(lines))):
-                val = convert_to_hours(lines[j])
-                if val > 0:
-                    categories["Productivity"] = val
-                    break
-
-    return categories
-
 # ================= UI =================
 
 st.markdown("## 📊 Upload Screen Time Screenshot")
 img_file = st.file_uploader("Upload Screenshot", type=["png","jpg","jpeg"])
 
 total_time = None
-text = ""
 
 if img_file:
     image = Image.open(img_file)
@@ -139,6 +109,7 @@ if age:
 
 # ---- APPS INPUT ----
 st.markdown("## 📱 Enter Top 3 Apps")
+
 apps, hours = [], []
 
 for i in range(3):
@@ -146,12 +117,13 @@ for i in range(3):
     with col1:
         app = st.text_input(f"App {i+1}", key=f"app_{i}")
     with col2:
-        time = st.text_input(f"Usage", key=f"time_{i}")
+        time = st.text_input(f"Usage (e.g. 1h 30m)", key=f"time_{i}")
 
     if app and time:
         apps.append(app)
         hours.append(convert_to_hours(time))
 
+# ---- SETTINGS ----
 limit = st.slider("Set app limit (hrs)", 0.5, 5.0, 2.0)
 pickups = st.number_input("Daily pickups", 0, 300, 40)
 
@@ -173,10 +145,10 @@ if total_time and age and len(apps) == 3:
         for _, row in high.iterrows():
             st.error(f"{row['App']} → {row['Hours']} hrs")
     else:
-        st.success("All apps within limit")
+        st.success("All apps within limit 🎉")
 
     # ---- COMPARISON GRAPH ----
-    st.markdown("## 📊 Comparison")
+    st.markdown("## 📊 Your Usage vs Average")
 
     data = pd.DataFrame({
         "Type": ["You", "Average"],
@@ -192,25 +164,6 @@ if total_time and age and len(apps) == 3:
                 ha='center', va='bottom')
 
     st.pyplot(fig)
-
-    # ---- BREAKDOWN (FIXED) ----
-    st.markdown("## 📊 Breakdown")
-
-    cat_data = extract_category_times(text)
-    filtered = {k: v for k, v in cat_data.items() if v > 0}
-
-    if filtered:
-        labels = list(filtered.keys())
-        values = list(filtered.values())
-
-        fig2, ax2 = plt.subplots()
-        ax2.pie(values, labels=labels, autopct='%1.1f%%', startangle=90)
-        ax2.set_title("Usage Distribution")
-
-        st.pyplot(fig2)
-
-    else:
-        st.warning("⚠️ Could not detect category breakdown clearly")
 
     # ---- EVALUATION ----
     st.markdown("## 📈 Evaluation")
@@ -235,6 +188,7 @@ if total_time and age and len(apps) == 3:
         q3 = st.radio("Use before sleep?", ["Select","Yes","No"], index=0)
 
         if "Select" not in [q1,q2,q3]:
+
             risk = [q1,q2,q3].count("Yes")
 
             if risk >= 2:
