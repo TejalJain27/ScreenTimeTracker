@@ -8,49 +8,57 @@ import re
 import os
 import matplotlib.pyplot as plt
 
-# ---- FIX FOR LOCAL WINDOWS ONLY ----
+# ---- FIX FOR LOCAL WINDOWS ----
 if os.name == "nt":
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 st.set_page_config(page_title="Screen Time Analyzer", layout="wide")
 
-# ---- HEADER ----
 st.title("📱 Screen Time Analyzer")
-st.caption("AI-powered iOS Screen Time Insights")
+st.caption("Smart iOS Screen Time Insights")
 
 DEFAULT_LIMIT = 2.5
 
-# ---- SUGGESTIONS ----
-suggestions = {
-    "Instagram": "Limit scrolling. Try 30 min/day.",
-    "YouTube": "Avoid binge watching.",
-    "WhatsApp": "Mute unnecessary groups.",
-    "Safari": "Reduce random browsing.",
-    "Snapchat": "Avoid streak pressure.",
-    "Facebook": "Avoid passive scrolling.",
-    "Chrome": "Focus on productive usage.",
-    "Games": "Limit gaming sessions."
+# ---- APP CATEGORY CLASSIFICATION ----
+CATEGORY_MAP = {
+    "Instagram": "Social",
+    "WhatsApp": "Social",
+    "Facebook": "Social",
+    "Snapchat": "Social",
+    "YouTube": "Entertainment",
+    "Call of Duty": "Gaming",
+    "PUBG": "Gaming",
+    "Chrome": "Productivity",
+    "Safari": "Productivity",
+    "ChatGPT": "Productivity"
 }
 
-# ---- IMAGE PREPROCESSING ----
-def preprocess_image(image):
+# ---- SUGGESTIONS ----
+SUGGESTIONS = {
+    "Social": "Reduce scrolling. Try app timers.",
+    "Gaming": "Limit sessions. Take breaks.",
+    "Entertainment": "Avoid binge watching.",
+    "Productivity": "Good usage. Keep it up!"
+}
+
+# ---- PREPROCESS ----
+def preprocess(image):
     img = np.array(image)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray = cv2.convertScaleAbs(gray, alpha=1.5, beta=0)
+    gray = cv2.convertScaleAbs(gray, alpha=1.5)
     _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
     return thresh
 
 # ---- OCR ----
 def extract_text(image):
-    processed = preprocess_image(image)
-    return pytesseract.image_to_string(processed)
+    return pytesseract.image_to_string(preprocess(image))
 
-# ---- TIME CONVERSION ----
+# ---- TIME ----
 def convert_to_hours(text):
-    hours = 0
     h = re.search(r"(\d+)\s*h", text)
     m = re.search(r"(\d+)\s*m", text)
 
+    hours = 0
     if h:
         hours += int(h.group(1))
     if m:
@@ -58,48 +66,89 @@ def convert_to_hours(text):
 
     return round(hours, 2)
 
-# ---- PARSE iOS DATA ----
+# ---- SMART PARSER ----
 def parse_ios(text):
     lines = [l.strip() for l in text.split("\n") if l.strip()]
-
-    apps, times = [], []
-
-    for line in lines:
-        if re.search(r"\d+\s*h|\d+\s*m", line):
-            times.append(line)
-        elif line.isalpha():
-            apps.append(line)
-
     data = []
-    for i in range(min(len(apps), len(times))):
-        data.append((apps[i], convert_to_hours(times[i])))
+
+    capture = False
+
+    for i, line in enumerate(lines):
+        if "Most Used" in line:
+            capture = True
+            continue
+
+        if capture:
+            if len(line) > 2 and not re.search(r"\d", line):
+
+                # skip noise words
+                if line.lower() in ["show", "categories"]:
+                    continue
+
+                app = line
+
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1]
+
+                    if re.search(r"\d", next_line):
+                        hours = convert_to_hours(next_line)
+
+                        # filter garbage like 'M'
+                        if len(app) > 2:
+                            data.append((app, hours))
 
     return pd.DataFrame(data, columns=["App", "Hours"])
 
 
 # ---- PRODUCTIVITY SCORE ----
-def productivity_score(df, limits):
+def productivity_score(df):
     score = 100
+
     for _, row in df.iterrows():
-        if row["Hours"] > limits[row["App"]]:
+        category = CATEGORY_MAP.get(row["App"], "Social")
+
+        if category in ["Social", "Gaming"] and row["Hours"] > 0.5:
             score -= 10
+
     return max(score, 0)
 
 
-# ---- FILE UPLOAD ----
+# ---- AI SUMMARY ----
+def generate_summary(df):
+    total = df["Hours"].sum()
+
+    category_time = {}
+
+    for _, row in df.iterrows():
+        cat = CATEGORY_MAP.get(row["App"], "Social")
+        category_time[cat] = category_time.get(cat, 0) + row["Hours"]
+
+    summary = f"Total usage is {round(total,2)} hrs.\n"
+
+    if "Social" in category_time:
+        if category_time["Social"] > 1:
+            summary += "You are overusing social apps.\n"
+
+    if "Productivity" in category_time:
+        summary += "Good productivity usage observed.\n"
+
+    if total > 2.5:
+        summary += "Overall screen time is high."
+
+    return summary
+
+
+# ---- UI ----
 st.markdown("### 📷 Upload Screenshot")
-uploaded_file = st.file_uploader("", type=["png", "jpg", "jpeg"])
+file = st.file_uploader("", type=["png", "jpg", "jpeg"])
 
-if uploaded_file:
+if file:
+    image = Image.open(file)
 
-    image = Image.open(uploaded_file)
-
-    # ---- CENTERED IMAGE ----
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        st.image(image, caption="Preview", width=300)
+        st.image(image, width=300)
 
-    # ---- OCR ----
     text = extract_text(image)
 
     with st.expander("🔍 View Extracted Text"):
@@ -109,52 +158,32 @@ if uploaded_file:
 
     if not df.empty:
 
+        st.success(f"Detected {len(df)} apps ✅")
+
+        # ---- ADD CATEGORY ----
+        df["Category"] = df["App"].apply(lambda x: CATEGORY_MAP.get(x, "Social"))
+
         st.markdown("## 📊 Usage Overview")
         st.dataframe(df, use_container_width=True)
 
-        # ---- LIMIT SETTINGS ----
-        st.markdown("## ⚙️ Customize Limits")
-
-        limits = {}
-        for _, row in df.iterrows():
-            limits[row["App"]] = st.slider(
-                f"{row['App']} limit (hrs)",
-                0.5, 10.0, DEFAULT_LIMIT
-            )
-
-        # ---- ANALYSIS ----
-        st.markdown("## 📈 Analysis")
-
-        total_time = df["Hours"].sum()
-        st.metric("Total Screen Time", f"{total_time:.2f} hrs")
-
         # ---- CHART ----
         st.markdown("### 📊 App Usage Chart")
-
         fig, ax = plt.subplots()
         ax.bar(df["App"], df["Hours"])
-        ax.set_ylabel("Hours")
-        ax.set_xlabel("Apps")
         plt.xticks(rotation=45)
-
         st.pyplot(fig)
 
-        # ---- PER APP FEEDBACK ----
-        st.markdown("### 📌 App Feedback")
+        # ---- CATEGORY CHART ----
+        st.markdown("### 📊 Category-wise Usage")
 
-        for _, row in df.iterrows():
-            app = row["App"]
-            usage = row["Hours"]
-            limit = limits[app]
+        cat_df = df.groupby("Category")["Hours"].sum()
 
-            if usage > limit:
-                st.error(f"🚨 {app}: {usage} hrs (Limit {limit})")
-                st.write("💡", suggestions.get(app, "Reduce usage gradually."))
-            else:
-                st.success(f"✅ {app}: Within limit")
+        fig2, ax2 = plt.subplots()
+        cat_df.plot(kind="bar", ax=ax2)
+        st.pyplot(fig2)
 
         # ---- PRODUCTIVITY SCORE ----
-        score = productivity_score(df, limits)
+        score = productivity_score(df)
 
         st.markdown("## 🧠 Productivity Score")
 
@@ -165,27 +194,15 @@ if uploaded_file:
         else:
             st.error(f"🚨 Poor: {score}/100")
 
-        # ---- OVERALL ----
-        st.markdown("## 🧾 Overall Feedback")
+        # ---- AI SUMMARY ----
+        st.markdown("## 🤖 AI Insight")
+        st.info(generate_summary(df))
 
-        if total_time > DEFAULT_LIMIT:
-            st.warning("⚠️ You exceeded 2.5 hrs total usage")
-        else:
-            st.success("👍 Healthy screen usage")
+        # ---- TIPS ----
+        st.markdown("## 📌 Suggestions")
 
-        # ---- GENERAL TIPS ----
-        st.markdown("## 📌 Tips to Improve")
-
-        tips = [
-            "Use Screen Time limits in iOS settings",
-            "Enable Downtime",
-            "Turn off notifications",
-            "Keep phone away during work",
-            "Switch to grayscale mode"
-        ]
-
-        for tip in tips:
-            st.write("•", tip)
+        for cat in df["Category"].unique():
+            st.write(f"**{cat}:** {SUGGESTIONS.get(cat)}")
 
     else:
-        st.error("❌ Could not detect apps. Try a clearer iOS screenshot.")
+        st.error("❌ Could not detect apps. Try a clearer screenshot.")
