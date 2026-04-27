@@ -150,35 +150,48 @@ if total_time and age and len(apps) == 3:
 
     # ---- COMPARISON GRAPH ----
 # ---- MODERN GRAPH ----
+# ---- MODERN BAR GRAPH ----
 st.markdown("## 📊 Your Usage vs Average")
 
 if total_time:
 
-    # Create simple time series (for visual effect)
-    x = np.arange(0, 30)
+    labels = ["You", "Average"]
+    values = [total_time, avg_usage]
 
-    user_line = np.random.normal(total_time, 0.1, 30)
-    avg_line = np.random.normal(avg_usage, 0.1, 30)
+    fig, ax = plt.subplots(figsize=(6,4))
 
-    fig, ax = plt.subplots()
-
-    # Dark background
+    # Dark theme
     fig.patch.set_facecolor("#0E1117")
     ax.set_facecolor("#0E1117")
 
-    # Plot lines
-    ax.plot(x, user_line, label="You", linewidth=2)
-    ax.plot(x, avg_line, label="Average", linewidth=2)
+    # Bars
+    bars = ax.bar(labels, values)
+
+    # Add labels on top
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(
+            bar.get_x() + bar.get_width()/2,
+            height + 0.05,
+            f"{round(height,2)}h",
+            ha='center',
+            va='bottom',
+            color='white',
+            fontsize=10
+        )
 
     # Styling
-    ax.grid(True, alpha=0.2)
-    ax.legend()
-    ax.set_title("Usage Trend Comparison", color="white")
+    ax.set_ylabel("Hours", color='white')
+    ax.set_title("Screen Time Comparison", color='white', fontsize=12)
 
-    # White labels
     ax.tick_params(colors='white')
-    ax.spines['bottom'].set_color('white')
+    ax.grid(axis='y', alpha=0.2)
+
+    # Remove top/right borders
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
     ax.spines['left'].set_color('white')
+    ax.spines['bottom'].set_color('white')
 
     st.pyplot(fig)
 
