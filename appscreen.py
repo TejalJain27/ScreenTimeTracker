@@ -17,8 +17,6 @@ st.set_page_config(page_title="Screen Time Analyzer", layout="wide")
 st.title("📱 Screen Time Analyzer")
 st.caption("Smart Digital Wellbeing Analyzer")
 
-DEFAULT_LIMIT = 2.5
-
 # ---- CATEGORY MAP ----
 CATEGORY_MAP = {
     "instagram": "Social",
@@ -46,15 +44,17 @@ def extract_text(image):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     return pytesseract.image_to_string(gray, config='--oem 3 --psm 6')
 
-# ---- TIME ----
+# ---- TIME FUNCTIONS ----
 def convert_to_hours(text):
     h = re.search(r"(\d+)\s*h", text)
     m = re.search(r"(\d+)\s*m", text)
+
     hours = 0
     if h:
         hours += int(h.group(1))
     if m:
         hours += int(m.group(1)) / 60
+
     return round(hours, 2)
 
 def extract_total_time(text):
@@ -65,7 +65,7 @@ def extract_total_time(text):
         return round(h + m/60, 2)
     return None
 
-# ---- CATEGORY BREAKDOWN FROM OCR ----
+# ---- CATEGORY BREAKDOWN ----
 def extract_category_times(text):
     categories = {"Social":0,"Games":0,"Productivity":0}
 
@@ -164,7 +164,7 @@ if total_time and age and len(apps) == 3:
     else:
         st.success("All apps within limit")
 
-    # ---- GRAPH ----
+    # ---- COMPARISON GRAPH ----
     st.markdown("## 📊 Comparison")
 
     data = pd.DataFrame({
@@ -182,33 +182,31 @@ if total_time and age and len(apps) == 3:
 
     st.pyplot(fig)
 
-    # ---- WHAT IT MEANS ----
-    st.markdown("## 🧠 What This Means")
-
-    percent_day = round((total_time / 16) * 100, 1)
-
-    st.info(f"""
-    • {percent_day}% of your waking time is spent on phone  
-    • Total: {round(total_time,2)} hrs/day  
-    """)
-
-    # ---- CATEGORY BREAKDOWN ----
+    # ---- BREAKDOWN PIE CHART ----
     cat_data = extract_category_times(text)
 
     st.markdown("## 📊 Breakdown")
 
-    for cat, val in cat_data.items():
-        if val > 0:
-            st.write(f"• {cat}: {val} hrs")
+    filtered = {k: v for k, v in cat_data.items() if v > 0}
 
-    # ---- INSIGHT ----
+    if filtered:
+        labels = list(filtered.keys())
+        values = list(filtered.values())
+
+        fig2, ax2 = plt.subplots()
+        ax2.pie(values, labels=labels, autopct='%1.1f%%', startangle=90)
+        ax2.set_title("Usage Distribution")
+
+        st.pyplot(fig2)
+
+    # ---- INTERPRETATION ----
     st.markdown("## 📈 Evaluation")
 
     diff = round(total_time - avg_usage, 2)
 
     if diff < -0.5:
         st.success("Low usage — well controlled")
-        st.write("Maintain current habits")
+        st.write("Maintain your current habits")
 
     elif abs(diff) <= 0.5:
         st.info("Average usage")
@@ -240,5 +238,5 @@ if total_time and age and len(apps) == 3:
     • Average: {avg_usage} hrs  
     • Difference: {diff} hrs  
 
-    👉 Improve by reducing unnecessary screen time.
+    👉 Try reducing unnecessary screen time and focus on meaningful usage.
     """)
