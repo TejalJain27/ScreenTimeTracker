@@ -25,10 +25,11 @@ CATEGORY_MAP = {
     "snapchat": "Social",
     "youtube": "Entertainment",
     "call of duty": "Gaming",
-    "pubg": "Gaming",
+    "subway surfers": "Gaming",
     "safari": "Productivity",
     "chrome": "Productivity",
-    "chatgpt": "Productivity"
+    "chatgpt": "Productivity",
+    "spotify": "Music"
 }
 
 def get_category(app):
@@ -197,12 +198,22 @@ if total_time and age and len(apps) == 3:
                 st.warning("Moderate risk")
 
     # ---- FINAL REPORT ----
-    st.markdown("## 🤖 Personalized Report")
+st.markdown("## 🤖 Personalized Report")
 
-    st.info(f"""
-    • Your Usage: {round(total_time,2)} hrs  
-    • Average: {avg_usage} hrs  
-    • Difference: {diff} hrs  
+# ---- CONTEXTUAL MESSAGE ----
+if diff < -0.5:
+    advice = "Great job — your screen time is well below average. Maintain this balance and avoid increasing passive usage."
 
-    👉 Try reducing unnecessary screen time and focus on meaningful usage.
-    """)
+elif abs(diff) <= 0.5:
+    advice = "Your usage is around average. Try optimizing by reducing unnecessary scrolling and focusing on meaningful activities."
+
+else:
+    advice = "Your usage is higher than average. Consider setting limits, reducing distractions, and avoiding excessive screen time."
+
+st.info(f"""
+• Your Usage: {round(total_time,2)} hrs  
+• Average: {avg_usage} hrs  
+• Difference: {diff} hrs  
+
+👉 {advice}
+""")
