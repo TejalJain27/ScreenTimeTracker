@@ -25,10 +25,11 @@ CATEGORY_MAP = {
     "snapchat": "Social",
     "youtube": "Entertainment",
     "call of duty": "Gaming",
-    "pubg": "Gaming",
+    "subway surfers": "Gaming",
     "safari": "Productivity",
     "chrome": "Productivity",
-    "chatgpt": "Productivity"
+    "chatgpt": "Productivity",
+    "spotify": "Music"
 }
 
 def get_category(app):
