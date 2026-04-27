@@ -33,7 +33,6 @@ CATEGORY_MAP = {
     "chatgpt": "Productivity"
 }
 
-# ---- CATEGORY FUNCTION ----
 def get_category(app):
     app = app.lower().strip()
     for key in CATEGORY_MAP:
@@ -95,7 +94,7 @@ if img_file:
 
 # ---- AGE ----
 st.markdown("## 👤 Your Profile")
-age = st.number_input("Enter your age", 10, 80, 20)
+age = st.number_input("Enter your age", 10, 80, value=None, placeholder="Enter age")
 
 def get_avg_usage(age):
     if age < 18:
@@ -107,44 +106,35 @@ def get_avg_usage(age):
     else:
         return 2.5
 
-avg_usage = get_avg_usage(age)
+if age:
+    avg_usage = get_avg_usage(age)
+    st.info(f"Average for your age: **{avg_usage} hrs/day**")
 
-st.markdown("## 📊 Average Usage (India)")
-st.info(f"For your age ({age}), average screen time ≈ **{avg_usage} hrs/day**")
-
-# ---- INPUT APPS ----
+# ---- APPS INPUT ----
 st.markdown("## 📱 Enter Top 3 Apps")
 
-apps = []
-hours = []
+apps, hours = [], []
 
 for i in range(3):
     col1, col2 = st.columns(2)
     with col1:
         app = st.text_input(f"App {i+1}", key=f"app_{i}")
     with col2:
-        time = st.text_input(f"Usage (e.g. 1h 30m)", key=f"time_{i}")
+        time = st.text_input(f"Usage", key=f"time_{i}")
 
     if app and time:
         apps.append(app)
         hours.append(convert_to_hours(time))
 
 # ---- LIMIT ----
-limit = st.slider("Set daily app limit (hrs)", 0.5, 5.0, 2.0, 0.5)
+limit = st.slider("Set app limit (hrs)", 0.5, 5.0, 2.0)
 
 # ---- PICKUPS ----
-pickups = st.number_input("Daily phone pickups", 0, 300, 40)
-
-# ---- BEHAVIOR ----
-st.markdown("## 🧠 Habits")
-
-q1 = st.radio("Check phone without purpose?", ["Yes", "No"])
-q2 = st.radio("Feel distracted?", ["Yes", "No"])
-q3 = st.radio("Use before sleep?", ["Yes", "No"])
+pickups = st.number_input("Daily pickups", 0, 300, 40)
 
 # ================= ANALYSIS =================
 
-if len(apps) == 3:
+if total_time and age and len(apps) == 3:
 
     df = pd.DataFrame({"App": apps, "Hours": hours})
     df["Category"] = df["App"].apply(get_category)
@@ -160,72 +150,82 @@ if len(apps) == 3:
         for _, row in high.iterrows():
             st.error(f"{row['App']} → {row['Hours']} hrs")
     else:
-        st.success("All apps within limit 🎉")
+        st.success("All apps within limit")
 
     # ---- GRAPH ----
-    if total_time:
-        st.markdown("## 📊 Usage vs Average")
+    st.markdown("## 📊 Comparison")
 
-        data = pd.DataFrame({
-            "Type": ["You", "Average"],
-            "Hours": [total_time, avg_usage]
-        })
+    data = pd.DataFrame({
+        "Type": ["You", "Average"],
+        "Hours": [total_time, avg_usage]
+    })
 
-        fig, ax = plt.subplots()
-        bars = ax.bar(data["Type"], data["Hours"])
+    fig, ax = plt.subplots()
+    bars = ax.bar(data["Type"], data["Hours"])
 
-        for bar in bars:
-            h = bar.get_height()
-            ax.text(bar.get_x()+bar.get_width()/2, h, f"{round(h,2)}h",
-                    ha='center', va='bottom')
+    for bar in bars:
+        h = bar.get_height()
+        ax.text(bar.get_x()+bar.get_width()/2, h, f"{round(h,2)}h",
+                ha='center', va='bottom')
 
-        st.pyplot(fig)
+    st.pyplot(fig)
 
-        # ---- INSIGHT ----
-        diff = round(total_time - avg_usage, 2)
+    diff = round(total_time - avg_usage, 2)
 
-        if diff > 0:
-            st.warning(f"You use **{diff} hrs more** than average")
-        else:
-            st.success(f"You use **{abs(diff)} hrs less** than average")
+    # ---- LOGIC ----
+    st.markdown("## 📈 Evaluation")
 
-    # ---- ADDICTION SCORE ----
-    score = 0
+    if diff < -0.5:
+        st.success("Low usage")
 
-    if sum(hours) > 3: score += 2
-    elif sum(hours) > 2: score += 1
+        st.markdown("### 💡 Maintain this")
+        st.write("• Keep current habits")
+        st.write("• Avoid unnecessary scrolling")
 
-    if pickups > 80: score += 2
-    elif pickups > 50: score += 1
+        report = "Your usage is well controlled and below average. Maintain these habits."
 
-    score += [q1, q2, q3].count("Yes")
+    elif abs(diff) <= 0.5:
+        st.info("Average usage")
 
-    st.markdown("## 🧠 Addiction Level")
+        st.markdown("### 💡 Improve slightly")
+        st.write("• Reduce passive screen time")
 
-    if score <= 2:
-        level = "Low"
-        st.success("Low Risk")
-    elif score <= 4:
-        level = "Moderate"
-        st.warning("Moderate Risk")
+        report = "Your usage is around average. Small improvements can help optimize productivity."
+
     else:
-        level = "High"
-        st.error("High Risk")
+        st.warning("High usage detected")
 
-    # ---- AI FEEDBACK ----
-    st.markdown("## 🤖 Personalized Feedback")
+        # ---- HABITS ----
+        st.markdown("## 🧠 Habits")
 
-    if level == "High":
-        st.write("You're showing strong signs of phone dependency.")
-        st.write("Try reducing social/gaming usage and limit pickups.")
-    elif level == "Moderate":
-        st.write("You're slightly overusing your phone.")
-        st.write("Try setting time limits and avoid bedtime usage.")
-    else:
-        st.write("You're maintaining a healthy balance. Keep it up!")
+        q1 = st.radio("Check phone without reason?", ["Select","Yes","No"], index=0)
+        q2 = st.radio("Feel distracted?", ["Select","Yes","No"], index=0)
+        q3 = st.radio("Use before sleep?", ["Select","Yes","No"], index=0)
+
+        if "Select" not in [q1,q2,q3]:
+
+            risk = [q1,q2,q3].count("Yes")
+
+            if risk >= 2:
+                st.error("High addiction risk")
+                report = "You show strong signs of phone dependency. Immediate reduction recommended."
+            else:
+                st.warning("Moderate risk")
+                report = "You have moderate dependency. Try limiting usage and reducing distractions."
+
+    # ---- AI REPORT ----
+    st.markdown("## 🤖 Personalized Report")
+
+    st.info(f"""
+    • Total Screen Time: {round(total_time,2)} hrs  
+    • Compared to Average: {diff} hrs difference  
+    • Daily Pickups: {pickups}  
+
+    👉 {report}
+    """)
 
     # ---- RESOURCES ----
-    st.markdown("## 🌐 Help Resources")
+    st.markdown("## 🌐 Help")
     st.write("• https://www.digitalwellbeing.org")
     st.write("• https://www.headspace.com")
     st.write("• https://www.rescuetime.com")
