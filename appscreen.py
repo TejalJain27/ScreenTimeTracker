@@ -50,13 +50,11 @@ def extract_text(image):
 def convert_to_hours(text):
     h = re.search(r"(\d+)\s*h", text)
     m = re.search(r"(\d+)\s*m", text)
-
     hours = 0
     if h:
         hours += int(h.group(1))
     if m:
         hours += int(m.group(1)) / 60
-
     return round(hours, 2)
 
 def extract_total_time(text):
@@ -67,13 +65,32 @@ def extract_total_time(text):
         return round(h + m/60, 2)
     return None
 
+# ---- CATEGORY BREAKDOWN FROM OCR ----
+def extract_category_times(text):
+    categories = {"Social":0,"Games":0,"Productivity":0}
+
+    patterns = {
+        "Social": r"Social\s*(\d+)\s*h?\s*(\d+)?\s*m?",
+        "Games": r"Games\s*(\d+)\s*h?\s*(\d+)?\s*m?",
+        "Productivity": r"Productivity.*?(\d+)\s*h?\s*(\d+)?\s*m?"
+    }
+
+    for cat, pattern in patterns.items():
+        match = re.search(pattern, text)
+        if match:
+            h = int(match.group(1)) if match.group(1) else 0
+            m = int(match.group(2)) if match.group(2) else 0
+            categories[cat] = round(h + m/60, 2)
+
+    return categories
+
 # ================= UI =================
 
-# ---- UPLOAD ----
 st.markdown("## 📊 Upload Screen Time Screenshot")
 img_file = st.file_uploader("Upload Screenshot", type=["png","jpg","jpeg"])
 
 total_time = None
+text = ""
 
 if img_file:
     image = Image.open(img_file)
@@ -89,8 +106,6 @@ if img_file:
         h = int(total_time)
         m = int((total_time - h) * 60)
         st.success(f"⏱ Total Screen Time: {h}h {m}m ({round(total_time,2)} hrs)")
-    else:
-        st.warning("Could not detect total time")
 
 # ---- AGE ----
 st.markdown("## 👤 Your Profile")
@@ -126,10 +141,7 @@ for i in range(3):
         apps.append(app)
         hours.append(convert_to_hours(time))
 
-# ---- LIMIT ----
 limit = st.slider("Set app limit (hrs)", 0.5, 5.0, 2.0)
-
-# ---- PICKUPS ----
 pickups = st.number_input("Daily pickups", 0, 300, 40)
 
 # ================= ANALYSIS =================
@@ -170,32 +182,41 @@ if total_time and age and len(apps) == 3:
 
     st.pyplot(fig)
 
-    diff = round(total_time - avg_usage, 2)
+    # ---- WHAT IT MEANS ----
+    st.markdown("## 🧠 What This Means")
 
-    # ---- LOGIC ----
+    percent_day = round((total_time / 16) * 100, 1)
+
+    st.info(f"""
+    • {percent_day}% of your waking time is spent on phone  
+    • Total: {round(total_time,2)} hrs/day  
+    """)
+
+    # ---- CATEGORY BREAKDOWN ----
+    cat_data = extract_category_times(text)
+
+    st.markdown("## 📊 Breakdown")
+
+    for cat, val in cat_data.items():
+        if val > 0:
+            st.write(f"• {cat}: {val} hrs")
+
+    # ---- INSIGHT ----
     st.markdown("## 📈 Evaluation")
 
+    diff = round(total_time - avg_usage, 2)
+
     if diff < -0.5:
-        st.success("Low usage")
-
-        st.markdown("### 💡 Maintain this")
-        st.write("• Keep current habits")
-        st.write("• Avoid unnecessary scrolling")
-
-        report = "Your usage is well controlled and below average. Maintain these habits."
+        st.success("Low usage — well controlled")
+        st.write("Maintain current habits")
 
     elif abs(diff) <= 0.5:
         st.info("Average usage")
-
-        st.markdown("### 💡 Improve slightly")
-        st.write("• Reduce passive screen time")
-
-        report = "Your usage is around average. Small improvements can help optimize productivity."
+        st.write("Reduce passive usage slightly")
 
     else:
         st.warning("High usage detected")
 
-        # ---- HABITS ----
         st.markdown("## 🧠 Habits")
 
         q1 = st.radio("Check phone without reason?", ["Select","Yes","No"], index=0)
@@ -208,24 +229,16 @@ if total_time and age and len(apps) == 3:
 
             if risk >= 2:
                 st.error("High addiction risk")
-                report = "You show strong signs of phone dependency. Immediate reduction recommended."
             else:
                 st.warning("Moderate risk")
-                report = "You have moderate dependency. Try limiting usage and reducing distractions."
 
-    # ---- AI REPORT ----
+    # ---- FINAL REPORT ----
     st.markdown("## 🤖 Personalized Report")
 
     st.info(f"""
-    • Total Screen Time: {round(total_time,2)} hrs  
-    • Compared to Average: {diff} hrs difference  
-    • Daily Pickups: {pickups}  
+    • Your Usage: {round(total_time,2)} hrs  
+    • Average: {avg_usage} hrs  
+    • Difference: {diff} hrs  
 
-    👉 {report}
+    👉 Improve by reducing unnecessary screen time.
     """)
-
-    # ---- RESOURCES ----
-    st.markdown("## 🌐 Help")
-    st.write("• https://www.digitalwellbeing.org")
-    st.write("• https://www.headspace.com")
-    st.write("• https://www.rescuetime.com")
