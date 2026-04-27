@@ -1,5 +1,12 @@
-# ================= USER INPUT =================
-
+import streamlit as st
+import pytesseract
+import cv2
+import numpy as np
+from PIL import Image
+import re
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
 st.markdown("## 📱 Enter Top 3 Most Used Apps")
 
 apps = []
