@@ -25,11 +25,10 @@ CATEGORY_MAP = {
     "snapchat": "Social",
     "youtube": "Entertainment",
     "call of duty": "Gaming",
-    "subway surfers": "Gaming",
+    "pubg": "Gaming",
     "safari": "Productivity",
     "chrome": "Productivity",
-    "chatgpt": "Productivity",
-    "spotify": "Music"
+    "chatgpt": "Productivity"
 }
 
 def get_category(app):
@@ -45,17 +44,15 @@ def extract_text(image):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     return pytesseract.image_to_string(gray, config='--oem 3 --psm 6')
 
-# ---- TIME FUNCTIONS ----
+# ---- TIME ----
 def convert_to_hours(text):
     h = re.search(r"(\d+)\s*h", text)
     m = re.search(r"(\d+)\s*m", text)
-
     hours = 0
     if h:
         hours += int(h.group(1))
     if m:
         hours += int(m.group(1)) / 60
-
     return round(hours, 2)
 
 def extract_total_time(text):
@@ -148,52 +145,43 @@ if total_time and age and len(apps) == 3:
     else:
         st.success("All apps within limit 🎉")
 
-    # ---- COMPARISON GRAPH ----
-# ---- MODERN GRAPH ----
-# ---- MODERN BAR GRAPH ----
-st.markdown("## 📊 Your Usage vs Average")
-
-if total_time:
+    # ---- MODERN BAR GRAPH ----
+    st.markdown("## 📊 Your Usage vs Average")
 
     labels = ["You", "Average"]
     values = [total_time, avg_usage]
 
     fig, ax = plt.subplots(figsize=(6,4))
-
-    # Dark theme
     fig.patch.set_facecolor("#0E1117")
     ax.set_facecolor("#0E1117")
 
-    # Bars
     bars = ax.bar(labels, values)
 
-    # Add labels on top
     for bar in bars:
-        height = bar.get_height()
-        ax.text(
-            bar.get_x() + bar.get_width()/2,
-            height + 0.05,
-            f"{round(height,2)}h",
-            ha='center',
-            va='bottom',
-            color='white',
-            fontsize=10
-        )
-
-    # Styling
-    ax.set_ylabel("Hours", color='white')
-    ax.set_title("Screen Time Comparison", color='white', fontsize=12)
+        h = bar.get_height()
+        ax.text(bar.get_x()+bar.get_width()/2, h + 0.05,
+                f"{round(h,2)}h",
+                ha='center', color='white')
 
     ax.tick_params(colors='white')
     ax.grid(axis='y', alpha=0.2)
-
-    # Remove top/right borders
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_color('white')
     ax.spines['bottom'].set_color('white')
 
     st.pyplot(fig)
+
+    # ---- LONG TERM IMPACT ----
+    monthly = round(total_time * 30, 1)
+
+    st.markdown("## 📆 Long-Term Impact")
+    st.warning(f"At this rate, you’ll spend ~{monthly} hrs/month on your phone")
+
+    # ---- BEHAVIORAL INSIGHT ----
+    if pickups > 80:
+        st.markdown("## 🧠 Behavioral Insight")
+        st.warning("Frequent pickups suggest habitual checking behavior")
 
     # ---- EVALUATION ----
     st.markdown("## 📈 Evaluation")
@@ -226,20 +214,17 @@ if total_time:
             else:
                 st.warning("Moderate risk")
 
-    # ---- FINAL REPORT ----
-st.markdown("## 🤖 Personalized Report")
+    # ---- PERSONALIZED REPORT ----
+    st.markdown("## 🤖 Personalized Report")
 
-# ---- CONTEXTUAL MESSAGE ----
-if diff < -0.5:
-    advice = "Great job — your screen time is well below average. Maintain this balance and avoid increasing passive usage."
+    if diff < -0.5:
+        advice = "Great job — your screen time is well below average. Maintain this balance."
+    elif abs(diff) <= 0.5:
+        advice = "Your usage is around average. Try optimizing your habits."
+    else:
+        advice = "Your usage is higher than average. Consider reducing screen time."
 
-elif abs(diff) <= 0.5:
-    advice = "Your usage is around average. Try optimizing by reducing unnecessary scrolling and focusing on meaningful activities."
-
-else:
-    advice = "Your usage is higher than average. Consider setting limits, reducing distractions, and avoiding excessive screen time."
-
-st.info(f"""
+    st.info(f"""
 • Your Usage: {round(total_time,2)} hrs  
 • Average: {avg_usage} hrs  
 • Difference: {diff} hrs  
