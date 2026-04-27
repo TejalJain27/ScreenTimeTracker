@@ -8,7 +8,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# ---- FIX FOR WINDOWS ----
+# ---- WINDOWS FIX ----
 if os.name == "nt":
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
@@ -39,7 +39,7 @@ def extract_text(image):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     return pytesseract.image_to_string(gray, config='--oem 3 --psm 6')
 
-# ---- TIME PARSER ----
+# ---- TIME FUNCTIONS ----
 def convert_to_hours(text):
     h = re.search(r"(\d+)\s*h", text)
     m = re.search(r"(\d+)\s*m", text)
@@ -62,7 +62,7 @@ def extract_total_time(text):
 
 # ================= UI =================
 
-# ---- SCREEN TIME UPLOAD ----
+# ---- SCREENSHOT UPLOAD ----
 st.markdown("## 📊 Upload Screen Time Screenshot")
 img_file = st.file_uploader("Upload Screenshot", type=["png","jpg","jpeg"])
 
@@ -83,11 +83,26 @@ if img_file:
         minutes = int((total_time - hours_int) * 60)
 
         st.success(f"⏱ Total Screen Time: {hours_int}h {minutes}m ({round(total_time,2)} hrs)")
-        st.caption("Decimal format is used internally for analysis")
     else:
         st.warning("Could not detect total screen time")
 
-# ---- MANUAL APP INPUT ----
+# ---- AGE INPUT ----
+st.markdown("## 👤 Your Profile")
+age = st.number_input("Enter your age", 10, 80, 20)
+
+def get_avg_usage(age):
+    if age < 18:
+        return 3.5
+    elif age <= 25:
+        return 4.5
+    elif age <= 40:
+        return 3.5
+    else:
+        return 2.5
+
+avg_usage = get_avg_usage(age)
+
+# ---- MANUAL APPS ----
 st.markdown("## 📱 Enter Top 3 Most Used Apps")
 
 apps = []
@@ -104,7 +119,7 @@ for i in range(3):
         apps.append(app)
         hours.append(convert_to_hours(time))
 
-# ---- CUSTOM LIMIT ----
+# ---- LIMIT ----
 st.markdown("## ⚙️ Set Usage Limit")
 limit = st.slider("Daily app usage limit (hrs)", 0.5, 5.0, 2.0, 0.5)
 
@@ -112,7 +127,7 @@ limit = st.slider("Daily app usage limit (hrs)", 0.5, 5.0, 2.0, 0.5)
 st.markdown("## 📱 Daily Pickups")
 pickups = st.number_input("How many times did you pick your phone?", 0, 300, 40)
 
-# ---- BEHAVIOR QUESTIONS ----
+# ---- BEHAVIOR ----
 st.markdown("## 🧠 Your Usage Habits")
 
 q1 = st.radio("Do you check your phone without purpose?", ["Yes", "No"])
@@ -126,22 +141,8 @@ if len(apps) == 3:
     df = pd.DataFrame({"App": apps, "Hours": hours})
     df["Category"] = df["App"].apply(lambda x: CATEGORY_MAP.get(x, "Other"))
 
-    st.markdown("## 📊 Usage Overview")
+    st.markdown("## 📊 Your Usage")
     st.dataframe(df, use_container_width=True)
-
-    # ---- CHART ----
-    st.markdown("### 📊 App Usage")
-    fig, ax = plt.subplots()
-    ax.bar(df["App"], df["Hours"])
-    plt.xticks(rotation=45)
-    st.pyplot(fig)
-
-    # ---- CATEGORY ----
-    st.markdown("### 📊 Category Usage")
-    cat = df.groupby("Category")["Hours"].sum()
-    fig2, ax2 = plt.subplots()
-    cat.plot(kind="bar", ax=ax2)
-    st.pyplot(fig2)
 
     # ---- HIGH USAGE ----
     st.markdown(f"## ⚠️ High Usage Apps (> {limit} hrs)")
@@ -153,19 +154,31 @@ if len(apps) == 3:
     else:
         st.success(f"No apps exceed {limit} hrs 🎉")
 
-    # ---- CONSISTENCY ----
+    # ---- COMPARISON GRAPH ----
     if total_time:
-        entered_total = sum(hours)
+        st.markdown("## 📊 Your Usage vs Average (India)")
 
-        st.markdown("## 🔍 Consistency Check")
-        st.write(f"Entered Apps Total: {round(entered_total,2)} hrs")
+        comparison_df = pd.DataFrame({
+            "Type": ["You", "Average"],
+            "Hours": [total_time, avg_usage]
+        })
 
-        if abs(entered_total - total_time) > 0.5:
-            st.warning("App usage does not match total screen time (missing apps)")
+        fig, ax = plt.subplots()
+        ax.bar(comparison_df["Type"], comparison_df["Hours"])
+        ax.set_ylabel("Hours")
+        st.pyplot(fig)
+
+        # ---- INSIGHT ----
+        st.markdown("## 📈 Comparison Insight")
+
+        if total_time > avg_usage:
+            st.warning("⚠️ Your screen time is higher than average for your age group.")
+        elif total_time < avg_usage:
+            st.success("✅ Your screen time is lower than average.")
         else:
-            st.success("App usage matches total screen time")
+            st.info("Your usage is around average.")
 
-    # ---- ADDICTION SCORE ----
+    # ---- ADDICTION ANALYSIS ----
     score = 0
 
     if sum(hours) > 3:
@@ -189,7 +202,7 @@ if len(apps) == 3:
     else:
         st.error("🚨 High Risk of Phone Addiction")
 
-    # ---- INSIGHT ----
+    # ---- INSIGHTS ----
     st.markdown("## 🤖 Insights")
 
     if pickups > 80:
